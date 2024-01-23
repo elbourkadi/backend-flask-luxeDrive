@@ -13,10 +13,7 @@ database_name = "luxeDrive"
 collection_name = "voitures"
 
 try:
-
     client = MongoClient(cluster_uri)
-
-
     db = client[database_name]
     collection = db[collection_name]
 
@@ -35,7 +32,6 @@ def chart():
     print(param)
 
     if param["type"] == "bar":
-
         data_from_mongo = collection.aggregate([
             {"$group": {"_id": "$marque", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}},
@@ -52,7 +48,6 @@ def chart():
         fig = Figure()
         ax1 = fig.subplots(1, 1)
 
-
         ax1.bar(
             labels,
             values,
@@ -62,19 +57,14 @@ def chart():
             alpha=0.7
         )
 
-
         ax1.set_xlabel('', fontsize=12)
         ax1.set_ylabel('nombre de nos voitures', fontsize=12)
         ax1.set_title('les top 5 marques les plus populaires à louer', fontsize=14)
 
     elif param["type"] == "line":
-
         current_month = str(datetime.datetime.now().month).zfill(2)
         current_year = str(datetime.datetime.now().year)
-
-
         next_month = str((datetime.datetime.now().month % 12) + 1).zfill(2)
-
 
         data_from_mongo = db["reservations"].aggregate([
             {"$match": {
@@ -83,7 +73,7 @@ def chart():
             }},
             {"$group": {
                 "_id": {"$week": "$date_debut"},  # Group by week
-                "count": {"$sum": 1}
+                "total_price": {"$sum": "$Prix_Total"}  # Sum total price
             }},
             {"$sort": {"_id": 1}}
         ])
@@ -92,12 +82,11 @@ def chart():
         values = []
 
         for entry in data_from_mongo:
-            labels.append(f"Semaine {entry['_id']+1 }")
-            values.append(entry["count"])
+            labels.append(f"Week {entry['_id']+1}")
+            values.append(entry["total_price"])
 
         fig = Figure()
         ax1 = fig.subplots(1, 1)
-
 
         ax1.plot(
             labels,
@@ -106,12 +95,12 @@ def chart():
             marker='o',
             linestyle='-',
             markersize=8,
-            label='Reservations'
+            label='Total Price'
         )
 
         ax1.set_xlabel('', fontsize=12)
-        ax1.set_ylabel('Nombre des Reservations', fontsize=12)
-        ax1.set_title(f' les Reservations du {current_month}-{current_year} pour chaque semaine', fontsize=14)
+        ax1.set_ylabel('Total Price of Reservations', fontsize=12)
+        ax1.set_title(f'Total Price of Reservations in {current_month}-{current_year} Grouped by Week', fontsize=14)
         ax1.legend()
 
     else:
@@ -121,6 +110,7 @@ def chart():
     VirtualCanvas(fig).print_png(output)
 
     return Response(output.getvalue(), mimetype="image/png")
+
 @app.route('/client_chart')
 def client_chart():
     desired_status = request.args.get("statuts", "client")
@@ -149,7 +139,6 @@ def client_chart():
         alpha=0.7
     )
 
-
     ax1.set_xlabel('', fontsize=12)
     ax1.set_ylabel('', fontsize=12)
     ax1.set_title(f'nombre des utilisateurs avec status "{desired_status}"', fontsize=14)
@@ -159,10 +148,8 @@ def client_chart():
 
     return Response(output.getvalue(), mimetype="image/png")
 
-
 @app.route('/car_status_pie_chart')
 def car_status_pie_chart():
-
     data_from_mongo = db["voitures"].aggregate([
         {"$group": {"_id": "$status", "count": {"$sum": 1}}}
     ])
@@ -176,7 +163,6 @@ def car_status_pie_chart():
 
     fig = Figure()
     ax1 = fig.subplots(1, 1)
-
 
     ax1.pie(
         values,
@@ -192,9 +178,6 @@ def car_status_pie_chart():
     VirtualCanvas(fig).print_png(output)
 
     return Response(output.getvalue(), mimetype="image/png")
-
-
-
 
 if __name__ == '__main__':
     app.run(debug=True)
