@@ -9,8 +9,11 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as VirtualCanvas
 import datetime
 from flask import jsonify
 
+from flask_cors import CORS
+
 
 app = Flask(__name__)
+CORS(app)
 cluster_uri = "mongodb+srv://elbourkadi:elbourkadi@cluster0.y8nh7j2.mongodb.net/?retryWrites=true&w=majority"
 database_name = "luxeDrive"
 collection_name_reservations = "reservations"
@@ -210,7 +213,12 @@ def user_count():
     try:
         user_count = db["users"].count_documents({})
 
-        return f"<h2 style='color: white;' > {user_count}</h2>"
+        # Create a JSON response
+        response = {
+            'user_count': user_count
+        }
+
+        return jsonify(response)
 
     except Exception as e:
         print("Error fetching user count:", e)
@@ -235,11 +243,14 @@ def revenue():
         # Extract the total revenue from the aggregation result
         total_revenue = next(data_from_mongo, {"total_revenue": 0})["total_revenue"]
 
-        return f"<h2 style='color: white;'>{total_revenue} dh</h2>"  # Return h1 with total revenue
-
+        response = {
+            'total_revenue': total_revenue
+        }
+        return jsonify(response)
     except Exception as e:
-        print("Error calculating revenue:", e)
-        return "<h1>Error calculating revenue</h1>"
+        # Handle exceptions or log errors
+        return jsonify({'error': str(e)})
+
 @app.route('/reservations_count')
 def reservations_count():
     try:
@@ -255,10 +266,14 @@ def reservations_count():
             "date_debut": {"$gte": start_date, "$lt": end_date}
         })
 
-        return f"<h2 style='color: white;'>{reservations_count}</h2>"  # Return h1 with reservations count
+        response = {
+            'reservations_count': reservations_count
+        }
+        return jsonify(response)
 
     except Exception as e:
         print("Error counting reservations:", e)
         return "<h1>Error counting reservations</h1>"
+
 if __name__ == '__main__':
     app.run(debug=True)
