@@ -1,21 +1,26 @@
 from io import BytesIO
 from flask import Flask, render_template, request, Response
 import json
+from jinja2 import Template
 from flask_pymongo import PyMongo
 from pymongo import MongoClient
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as VirtualCanvas
 import datetime
+from flask import jsonify
+
 
 app = Flask(__name__)
 cluster_uri = "mongodb+srv://elbourkadi:elbourkadi@cluster0.y8nh7j2.mongodb.net/?retryWrites=true&w=majority"
 database_name = "luxeDrive"
-collection_name = "voitures"
+collection_name_reservations = "reservations"
+collection_name_voitures = "voitures"
 
 try:
     client = MongoClient(cluster_uri)
     db = client[database_name]
-    collection = db[collection_name]
+    collection_reservations = db[collection_name_reservations]
+    collection_voitures = db[collection_name_voitures]
 
     print("Connected to MongoDB Atlas successfully!")
 
@@ -32,34 +37,53 @@ def chart():
     print(param)
 
     if param["type"] == "bar":
-        data_from_mongo = collection.aggregate([
-            {"$group": {"_id": "$marque", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
-            {"$limit": 5}
-        ])
+        try:
 
-        labels = []
-        values = []
+            data_from_mongo = collection_reservations.aggregate([
+                {"$lookup": {
+                    "from": "voitures",
+                    "localField": "voiture_id",
+                    "foreignField": "_id",
+                    "as": "voiture"
+                }},
+                {"$unwind": "$voiture"},
+                {"$group": {"_id": "$voiture.marque", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": 5}
+            ])
 
-        for entry in data_from_mongo:
-            labels.append(entry["_id"])
-            values.append(entry["count"])
+            labels = []
+            values = []
 
-        fig = Figure()
-        ax1 = fig.subplots(1, 1)
+            for entry in data_from_mongo:
+                labels.append(entry["_id"])
+                values.append(entry["count"])
 
-        ax1.bar(
-            labels,
-            values,
-            color='blue',
-            edgecolor='black',
-            linewidth=1,
-            alpha=0.7
-        )
+            fig = Figure()
+            ax1 = fig.subplots(1, 1)
 
-        ax1.set_xlabel('', fontsize=12)
-        ax1.set_ylabel('nombre de nos voitures', fontsize=12)
-        ax1.set_title('les top 5 marques les plus populaires à louer', fontsize=14)
+            ax1.bar(
+                labels,
+                values,
+                color='blue',
+                edgecolor='black',
+                linewidth=1,
+                alpha=0.7
+            )
+
+            # Axes styling
+            ax1.set_xlabel('marque voiture', fontsize=12)
+            ax1.set_ylabel('Nombre des  Reservations', fontsize=12)
+            ax1.set_title('les Top 5 voitures marques par le nombre des reservations', fontsize=14)
+
+            output = BytesIO()
+            VirtualCanvas(fig).print_png(output)
+
+            return Response(output.getvalue(), mimetype="image/png")
+
+        except Exception as e:
+            print("Error fetching data for bar chart:", e)
+            return "Error fetching data for bar chart"
 
     elif param["type"] == "line":
         current_month = str(datetime.datetime.now().month).zfill(2)
@@ -82,7 +106,7 @@ def chart():
         values = []
 
         for entry in data_from_mongo:
-            labels.append(f"Week {entry['_id']+1}")
+            labels.append(f"Semaine {entry['_id']+1}")
             values.append(entry["total_price"])
 
         fig = Figure()
@@ -99,8 +123,8 @@ def chart():
         )
 
         ax1.set_xlabel('', fontsize=12)
-        ax1.set_ylabel('Total Price of Reservations', fontsize=12)
-        ax1.set_title(f'Total Price of Reservations in {current_month}-{current_year} Grouped by Week', fontsize=14)
+        ax1.set_ylabel('Le Prix des  Reservations', fontsize=12)
+        ax1.set_title(f'Le revenu de ce mois  {current_month}-{current_year} par semaine', fontsize=14)
         ax1.legend()
 
     else:
@@ -110,6 +134,9 @@ def chart():
     VirtualCanvas(fig).print_png(output)
 
     return Response(output.getvalue(), mimetype="image/png")
+
+
+
 
 @app.route('/client_chart')
 def client_chart():
@@ -172,12 +199,66 @@ def car_status_pie_chart():
         colors=['lightgreen', 'lightcoral'],
     )
 
-    ax1.set_title('Disponibilite des voitures', fontsize=14)
+    ax1.set_title('Disponibilité des voitures', fontsize=14)
 
     output = BytesIO()
     VirtualCanvas(fig).print_png(output)
 
     return Response(output.getvalue(), mimetype="image/png")
+@app.route('/user_count')
+def user_count():
+    try:
+        user_count = db["users"].count_documents({})
 
+        return f"<h2 style='color: white;' > {user_count}</h2>"
+
+    except Exception as e:
+        print("Error fetching user count:", e)
+        return "Error fetching user count"
+
+@app.route('/revenue')
+def revenue():
+    try:
+        current_month = datetime.datetime.now().month
+        current_year = datetime.datetime.now().year
+
+        # Calculate the start and end dates of the current month
+        start_date = datetime.datetime(current_year, current_month, 1)
+        end_date = datetime.datetime(current_year, current_month + 1, 1)
+
+        # Fetch reservations with a start date in the current month
+        data_from_mongo = collection_reservations.aggregate([
+            {"$match": {"date_debut": {"$gte": start_date, "$lt": end_date}}},
+            {"$group": {"_id": None, "total_revenue": {"$sum": {"$ifNull": ["$Prix_Total", 0]}}}}
+        ])
+
+        # Extract the total revenue from the aggregation result
+        total_revenue = next(data_from_mongo, {"total_revenue": 0})["total_revenue"]
+
+        return f"<h2 style='color: white;'>{total_revenue} dh</h2>"  # Return h1 with total revenue
+
+    except Exception as e:
+        print("Error calculating revenue:", e)
+        return "<h1>Error calculating revenue</h1>"
+@app.route('/reservations_count')
+def reservations_count():
+    try:
+        current_month = datetime.datetime.now().month
+        current_year = datetime.datetime.now().year
+
+        # Calculate the start and end dates of the current month
+        start_date = datetime.datetime(current_year, current_month, 1)
+        end_date = datetime.datetime(current_year, current_month + 1, 1)
+
+        # Count reservations with a start date in the current month
+        reservations_count = collection_reservations.count_documents({
+            "date_debut": {"$gte": start_date, "$lt": end_date}
+        })
+
+        return f"<h2 style='color: white;'>{reservations_count}</h2>"  # Return h1 with reservations count
+
+    except Exception as e:
+        print("Error counting reservations:", e)
+        return "<h1>Error counting reservations</h1>"
 if __name__ == '__main__':
     app.run(debug=True)
