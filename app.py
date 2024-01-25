@@ -9,11 +9,21 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as VirtualCanvas
 import datetime
 from flask import jsonify
 
+
 from flask_cors import CORS
 
 
+
+
+
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
 app = Flask(__name__)
 CORS(app)
+
+
+
 cluster_uri = "mongodb+srv://elbourkadi:elbourkadi@cluster0.y8nh7j2.mongodb.net/?retryWrites=true&w=majority"
 database_name = "luxeDrive"
 collection_name_reservations = "reservations"
@@ -216,7 +226,6 @@ def user_count():
     try:
         user_count = db["users"].count_documents({})
 
-        # Create a JSON response
         response = {
             'user_count': user_count
         }
@@ -233,17 +242,14 @@ def revenue():
         current_month = datetime.datetime.now().month
         current_year = datetime.datetime.now().year
 
-        # Calculate the start and end dates of the current month
         start_date = datetime.datetime(current_year, current_month, 1)
         end_date = datetime.datetime(current_year, current_month + 1, 1)
 
-        # Fetch reservations with a start date in the current month
         data_from_mongo = collection_reservations.aggregate([
             {"$match": {"date_debut": {"$gte": start_date, "$lt": end_date}}},
             {"$group": {"_id": None, "total_revenue": {"$sum": {"$ifNull": ["$Prix_Total", 0]}}}}
         ])
 
-        # Extract the total revenue from the aggregation result
         total_revenue = next(data_from_mongo, {"total_revenue": 0})["total_revenue"]
 
         response = {
@@ -251,7 +257,6 @@ def revenue():
         }
         return jsonify(response)
     except Exception as e:
-        # Handle exceptions or log errors
         return jsonify({'error': str(e)})
 
 @app.route('/reservations_count')
@@ -260,11 +265,9 @@ def reservations_count():
         current_month = datetime.datetime.now().month
         current_year = datetime.datetime.now().year
 
-        # Calculate the start and end dates of the current month
         start_date = datetime.datetime(current_year, current_month, 1)
         end_date = datetime.datetime(current_year, current_month + 1, 1)
 
-        # Count reservations with a start date in the current month
         reservations_count = collection_reservations.count_documents({
             "date_debut": {"$gte": start_date, "$lt": end_date}
         })
@@ -283,7 +286,6 @@ def agence_revenue():
     try:
         param = json.loads(request.args.get("param"))
         if param["type"] == "bar":
-            # Fetch data from MongoDB and sort by total price in descending order
             data_from_mongo = collection_reservations.aggregate([
                 {"$lookup": {
                     "from": "voitures",
@@ -301,7 +303,6 @@ def agence_revenue():
             values = []
 
             for entry in data_from_mongo:
-                # You can directly use the agence_depart_name if it's available in your collection
                 agence_name = entry.get('agence_depart_name', entry['_id'])
                 labels.append(agence_name)
                 values.append(entry["total_price"])
@@ -315,17 +316,16 @@ def agence_revenue():
             fig = Figure()
             ax1 = fig.subplots(1, 1)
 
-            # Bar styling
+
             ax1.barh(
                 labels,
                 values,
-                color='orange',  # Bar color
-                edgecolor='black',  # Bar edge color
-                linewidth=1,  # Bar edge width
-                alpha=0.7  # Bar transparency
+                color='orange',
+                edgecolor='black',
+                linewidth=1,
+                alpha=0.7
             )
 
-            # Axes styling
             ax1.set_xlabel('Agences ', fontsize=12)
             ax1.set_ylabel('', fontsize=12)
             ax1.set_title('Top 5 des agences ayant généré le plus de revenus', fontsize=14)
@@ -341,19 +341,16 @@ def agence_revenue():
 @app.route('/last5reservations')
 def last5reservations():
     try:
-        # Fetch the last 5 reservations from MongoDB
         last_5_reservations_cursor = collection_reservations.find().sort([("_id", -1)]).limit(5)
 
         if last_5_reservations_cursor.count() > 0:
             last_5_reservations = list(last_5_reservations_cursor)
 
-            # Extract relevant information from each reservation
             result = []
             for reservation in last_5_reservations:
                 user_id = reservation.get("user_id")
                 voiture_id = reservation.get("voiture_id")
 
-                # Fetch user information
                 user = db["users"].find_one({"_id": user_id})
                 user_info = {
                     "nom": user.get("nom", ""),
@@ -363,14 +360,12 @@ def last5reservations():
                     "status": user.get("status", "")
                 }
 
-                # Fetch voiture information
                 voiture = db["voitures"].find_one({"_id": voiture_id})
                 voiture_info = {
                     "marque": voiture.get("marque", ""),
                     "modele": voiture.get("modele", ""),
                 }
 
-                # Construct the result
                 result.append({
                     "Prix_Total": reservation.get("Prix_Total", 0),
                     "user": user_info,
