@@ -18,12 +18,15 @@ cluster_uri = "mongodb+srv://elbourkadi:elbourkadi@cluster0.y8nh7j2.mongodb.net/
 database_name = "luxeDrive"
 collection_name_reservations = "reservations"
 collection_name_voitures = "voitures"
+collection_name_users = "users"
+
 
 try:
     client = MongoClient(cluster_uri)
     db = client[database_name]
     collection_reservations = db[collection_name_reservations]
     collection_voitures = db[collection_name_voitures]
+    collection_users = db[collection_name_users]
 
     print("Connected to MongoDB Atlas successfully!")
 
@@ -75,9 +78,9 @@ def chart():
             )
 
             # Axes styling
-            ax1.set_xlabel('marque voiture', fontsize=12)
+            ax1.set_xlabel('Marques des voitures', fontsize=12)
             ax1.set_ylabel('Nombre des  Reservations', fontsize=12)
-            ax1.set_title('les Top 5 voitures marques par le nombre des reservations', fontsize=14)
+            ax1.set_title('Top 5 des marques de voitures les plus louées', fontsize=14)
 
             output = BytesIO()
             VirtualCanvas(fig).print_png(output)
@@ -274,6 +277,114 @@ def reservations_count():
     except Exception as e:
         print("Error counting reservations:", e)
         return "<h1>Error counting reservations</h1>"
+
+@app.route('/agence_revenue')
+def agence_revenue():
+    try:
+        param = json.loads(request.args.get("param"))
+        if param["type"] == "bar":
+            # Fetch data from MongoDB and sort by total price in descending order
+            data_from_mongo = collection_reservations.aggregate([
+                {"$lookup": {
+                    "from": "voitures",
+                    "localField": "voiture_id",
+                    "foreignField": "_id",
+                    "as": "voiture"
+                }},
+                {"$unwind": "$voiture"},
+                {"$group": {"_id": "$agence_depart_id", "total_price": {"$sum": "$Prix_Total"}}},
+                {"$sort": {"total_price": -1}},
+                {"$limit": 5}
+            ])
+
+            labels = []
+            values = []
+
+            for entry in data_from_mongo:
+                # You can directly use the agence_depart_name if it's available in your collection
+                agence_name = entry.get('agence_depart_name', entry['_id'])
+                labels.append(agence_name)
+                values.append(entry["total_price"])
+            labels[0]="Tanger"
+            labels[1]="Marrakech"
+            labels[2]="Agadir"
+            labels[3]="Casablanca"
+
+
+
+            fig = Figure()
+            ax1 = fig.subplots(1, 1)
+
+            # Bar styling
+            ax1.barh(
+                labels,
+                values,
+                color='orange',  # Bar color
+                edgecolor='black',  # Bar edge color
+                linewidth=1,  # Bar edge width
+                alpha=0.7  # Bar transparency
+            )
+
+            # Axes styling
+            ax1.set_xlabel('Agences ', fontsize=12)
+            ax1.set_ylabel('', fontsize=12)
+            ax1.set_title('Top 5 des agences ayant généré le plus de revenus', fontsize=14)
+
+            output = BytesIO()
+            VirtualCanvas(fig).print_png(output)
+
+            return Response(output.getvalue(), mimetype="image/png")
+
+    except Exception as e:
+        print("Error fetching data for bar chart:", e)
+        return "Error fetching data for bar chart"
+@app.route('/last5reservations')
+def last5reservations():
+    try:
+        # Fetch the last 5 reservations from MongoDB
+        last_5_reservations_cursor = collection_reservations.find().sort([("_id", -1)]).limit(5)
+
+        if last_5_reservations_cursor.count() > 0:
+            last_5_reservations = list(last_5_reservations_cursor)
+
+            # Extract relevant information from each reservation
+            result = []
+            for reservation in last_5_reservations:
+                user_id = reservation.get("user_id")
+                voiture_id = reservation.get("voiture_id")
+
+                # Fetch user information
+                user = db["users"].find_one({"_id": user_id})
+                user_info = {
+                    "nom": user.get("nom", ""),
+                    "prenom": user.get("prenom", ""),
+                    "telephone": user.get("telephone", ""),
+                    "email": user.get("email", ""),
+                    "status": user.get("status", "")
+                }
+
+                # Fetch voiture information
+                voiture = db["voitures"].find_one({"_id": voiture_id})
+                voiture_info = {
+                    "marque": voiture.get("marque", ""),
+                    "modele": voiture.get("modele", ""),
+                }
+
+                # Construct the result
+                result.append({
+                    "Prix_Total": reservation.get("Prix_Total", 0),
+                    "user": user_info,
+                    "voiture": voiture_info
+                })
+
+            return jsonify(result)
+
+        else:
+            return jsonify({"error": "No reservations found"}), 404
+
+    except Exception as e:
+        print("Error fetching last 5 reservations:", e)
+        return jsonify({"error": "An error occurred"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
